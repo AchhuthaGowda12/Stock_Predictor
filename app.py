@@ -7,7 +7,7 @@ from sklearn.svm import SVR
 from sklearn.decomposition import PCA
 from sklearn.linear_model import LinearRegression
 from sklearn.naive_bayes import GaussianNB
-from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, r2_score
+from sklearn.metrics import classification_report, confusion_matrix, accuracy_score, r2_score, mean_absolute_error,mean_squared_error
 from tensorflow.keras.models import Sequential, load_model
 from tensorflow.keras.layers import LSTM, Dense, Dropout
 from tensorflow.keras.optimizers import Adam
@@ -144,9 +144,11 @@ def train_lstm_svr(stock_name,scaler):
     )[:, 0]
     
     r2 = r2_score(y_test_rescaled, y_pred_rescaled)
+    mse=mean_squared_error(y_test_rescaled, y_pred_rescaled)
+    mae=mean_absolute_error(y_test_rescaled, y_pred_rescaled)
     test_dates = data_with_features.index[split_index + lookback:]
     
-    return lstm_model, feature_extractor, svr_model, r2, test_dates, y_pred_rescaled,y_test_rescaled
+    return lstm_model, feature_extractor, svr_model, r2, test_dates, y_pred_rescaled,y_test_rescaled,mse,mae
 
 def train_naive_bayes(data):
     # Prepare features and labels
@@ -175,6 +177,8 @@ def train_naive_bayes(data):
     accuracy = accuracy_score(y_test, y_pred)
     
     return nb_model, scaler, report, accuracy
+
+
 
 def train_linear(stock_name):
     start_date = '2015-01-01'
@@ -228,6 +232,8 @@ def train_linear(stock_name):
 
     # Calculate R2 score
     r2 = r2_score(y_test_original, y_pred)
+    mse=mean_squared_error(y_test_original, y_pred)
+    mae=mean_absolute_error(y_test_original, y_pred)
 
     # Get test dates for plotting
     test_dates = data_with_features.index[split_index:]
@@ -271,7 +277,9 @@ def train_linear(stock_name):
     # Create future dates
     forecast_dates = [pd.to_datetime(end_date) + pd.Timedelta(days=i+1) for i in range(7)]
 
-    return lr_model, pca, r2, test_dates, y_pred, y_test_original, X_scaler, y_scaler, forecast_dates, predictions
+    return lr_model, pca, r2, test_dates, y_pred, y_test_original, X_scaler, y_scaler, forecast_dates, predictions,mse,mae
+
+
 
 def main():
     st.title("📈 Stock Analysis Dashboard")
@@ -337,6 +345,8 @@ def main():
             feature_extractor = load_model(f"models/{stock_ticker}_feature_extractor.h5")
             svr_model = joblib.load(f"models/{stock_ticker}_svr.joblib")
             r2 = joblib.load(f"models/{stock_ticker}_r2.joblib")
+            mse=joblib.load(f"models/{stock_ticker}_mse.joblib")
+            mae=joblib.load(f"models/{stock_ticker}_mae.joblib")
             evaluation_data = joblib.load(f"models/{stock_ticker}_evaluation_data.joblib")
             test_dates = evaluation_data["test_dates"]
             y_pred_rescaled = evaluation_data["y_pred_rescaled"]
@@ -344,13 +354,15 @@ def main():
         else:
             # Train new models
             with st.spinner("Training LSTM+SVR model..."):
-                lstm_model, feature_extractor, svr_model, r2, test_dates, y_pred_rescaled, y_test_rescaled = train_lstm_svr(stock_ticker, price_scaler)
+                lstm_model, feature_extractor, svr_model, r2, test_dates, y_pred_rescaled, y_test_rescaled,mse,mae= train_lstm_svr(stock_ticker, price_scaler)
                 if lstm_model is not None:
                     os.makedirs("models", exist_ok=True)
                     lstm_model.save(f"models/{stock_ticker}_lstm.h5")
                     feature_extractor.save(f"models/{stock_ticker}_feature_extractor.h5")
                     joblib.dump(svr_model, f"models/{stock_ticker}_svr.joblib")
                     joblib.dump(r2, f"models/{stock_ticker}_r2.joblib")
+                    joblib.dump(mse, f"models/{stock_ticker}_mse.joblib")
+                    joblib.dump(mae, f"models/{stock_ticker}_mae.joblib")
                     joblib.dump({
                         "test_dates": test_dates,
                         "y_pred_rescaled": y_pred_rescaled,
@@ -375,7 +387,7 @@ def main():
         height: 10px; 
         width: 80%; 
         margin: 0 auto; 
-        background: #e0e0e0; 
+        background: #e0e0e0;
         border-radius: 5px; 
         position: relative;'>
         <div style='
@@ -387,6 +399,38 @@ def main():
     </div>
 </div>
 """, unsafe_allow_html=True)
+
+        st.markdown("### Model Performance Metrics")
+
+# Metric display in horizontal cards
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown(f"""
+    <div style='
+        background: #e3f2fd; 
+        border: 1px solid #64b5f6; 
+        border-radius: 10px; 
+        padding: 1rem; 
+        text-align: center;'>
+        <h4 style='margin: 0; color: #1565c0;'>Mean Squared Error (MSE)</h4>
+        <p style='margin: 0; font-size: 1.5rem; font-weight: bold; color: #1e88e5;'>{mse:.2f}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+        with col2:
+            st.markdown(f"""
+    <div style='
+        background: #e8f5e9; 
+        border: 1px solid #43a047; 
+        border-radius: 10px; 
+        padding: 1rem; 
+        text-align: center;'>
+        <h4 style='margin: 0; color: #2e7d32;'>Mean Absolute Error (MAE)</h4>
+        <p style='margin: 0; font-size: 1.5rem; font-weight: bold; color: #43a047;'>{mae:.2f}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
 
         
         # Predict next 7 days
@@ -424,34 +468,34 @@ def main():
         fig.add_trace(go.Scatter(x=forecast_dates, y=predictions, mode='lines', name='Forecast', line=dict(color='green', dash='dash')))
 
         fig.update_layout(
-            title=f"{stock_ticker} Stock Price Forecast",
-            xaxis_title="Date",
-            yaxis_title="Price",
-            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
-            template="plotly_white"
-        )
+                title=f"{stock_ticker} Stock Price Forecast",
+                xaxis_title="Date",
+                yaxis_title="Price",
+                legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+                template="plotly_white"
+            )
         st.plotly_chart(fig)
 
-        # Display predictions table
+            # Display predictions table
         forecast_df = pd.DataFrame({
-            'Date': forecast_dates,
-            'Predicted Price': predictions
-        })
-        # st.dataframe(forecast_df.style.format({'Predicted Price': '{:.2f}'}))
+                'Date': forecast_dates,
+                'Predicted Price': predictions
+            })
+            # st.dataframe(forecast_df.style.format({'Predicted Price': '{:.2f}'}))
         forecast_df['Date'] = pd.to_datetime(forecast_df['Date']).dt.date
 
 # Reset the index to start from 1
         forecast_df.index = range(1, len(forecast_df) + 1)
-        # Create a visually enhanced forecast table section
+            # Create a visually enhanced forecast table section
         st.markdown("### 📊 Stock Price Forecast Table")
 
-        # Style forecast data with conditional formatting
+            # Style forecast data with conditional formatting
         styled_forecast_df = forecast_df.style.format({'Predicted Price': '{:.2f}'}).apply(
-            lambda x: ['background-color: #d1ffd6' if v > forecast_df['Predicted Price'].mean() else '' for v in x],
-            subset=['Predicted Price']
-        )
+                lambda x: ['background-color: #d1ffd6' if v > forecast_df['Predicted Price'].mean() else '' for v in x],
+                subset=['Predicted Price']
+            )
 
-        # Display the styled forecast table
+            # Display the styled forecast table
         st.dataframe(styled_forecast_df, use_container_width=True)
 
     # Tab 2: Risk Assessment
@@ -607,37 +651,9 @@ def main():
 
     with tab3:
         st.header("Linear Regression Time Series")
-        
-        if selected_stock_name != "Others" and os.path.exists(f"models/{stock_ticker}_lr.joblib"):
-            lr_model = joblib.load(f"models/{stock_ticker}_lr.joblib")
-            pca = joblib.load(f"models/{stock_ticker}_pca.joblib")
-            r2 = joblib.load(f"models/{stock_ticker}_lr_r2.joblib")
-            evaluation_data = joblib.load(f"models/{stock_ticker}_lr_evaluation_data.joblib")
-            test_dates = evaluation_data["test_dates"]
-            y_pred = evaluation_data["y_pred"]
-            y_test = evaluation_data["y_test"]
-            X_scaler = joblib.load(f"models/{stock_ticker}_X_scaler.joblib")
-            y_scaler = joblib.load(f"models/{stock_ticker}_y_scaler.joblib")
-            forecast_dates = evaluation_data["forecast_dates"]
-            predictions = evaluation_data["predictions"]
-        else:
-            with st.spinner("Training Linear Regression model..."):
-                lr_model, pca, r2, test_dates, y_pred, y_test, X_scaler, y_scaler, forecast_dates, predictions = train_linear(stock_ticker)
-                if lr_model is not None:
-                    os.makedirs("models", exist_ok=True)
-                    joblib.dump(lr_model, f"models/{stock_ticker}_lr.joblib")
-                    joblib.dump(pca, f"models/{stock_ticker}_pca.joblib")
-                    joblib.dump(r2, f"models/{stock_ticker}_lr_r2.joblib")
-                    joblib.dump({
-                        "test_dates": test_dates,
-                        "y_pred": y_pred,
-                        "y_test": y_test,
-                        "forecast_dates": forecast_dates,
-                        "predictions": predictions
-                    }, f"models/{stock_ticker}_lr_evaluation_data.joblib")
-                    joblib.dump(X_scaler, f"models/{stock_ticker}_X_scaler.joblib")
-                    joblib.dump(y_scaler, f"models/{stock_ticker}_y_scaler.joblib")
-
+        with st.spinner("Training Linear Regression model..."):
+                lr_model, pca, r2, test_dates, y_pred, y_test, X_scaler, y_scaler, forecast_dates, predictions,mse,mae = train_linear(stock_ticker)
+                
         # Display R2 score (existing code)
         st.markdown(f"""
         <div style='
@@ -667,6 +683,35 @@ def main():
             </div>
         </div>
         """, unsafe_allow_html=True)
+
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown(f"""
+    <div style='
+        background: #e3f2fd; 
+        border: 1px solid #64b5f6; 
+        border-radius: 10px; 
+        padding: 1rem; 
+        text-align: center;'>
+        <h4 style='margin: 0; color: #1565c0;'>Mean Squared Error (MSE)</h4>
+        <p style='margin: 0; font-size: 1.5rem; font-weight: bold; color: #1e88e5;'>{mse:.2f}</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+        with col2:
+            st.markdown(f"""
+    <div style='
+        background: #e8f5e9; 
+        border: 1px solid #43a047; 
+        border-radius: 10px; 
+        padding: 1rem; 
+        text-align: center;'>
+        <h4 style='margin: 0; color: #2e7d32;'>Mean Absolute Error (MAE)</h4>
+        <p style='margin: 0; font-size: 1.5rem; font-weight: bold; color: #43a047;'>{mae:.2f}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
         # Create and display the plot with forecast
         fig = go.Figure()
@@ -736,6 +781,7 @@ def main():
         )
         
         st.dataframe(styled_forecast_df, use_container_width=True)
+
 
 if __name__== "__main__":
      main()
