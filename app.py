@@ -339,7 +339,7 @@ def main():
         price_scaler = MinMaxScaler()
         
         # Check if models exist for predefined stocks
-        if selected_stock_name != "Others" and os.path.exists(f"models/{stock_ticker}_lstm.h5"):
+        if os.path.exists(f"models/{stock_ticker}_lstm.h5"):
             # Load pre-trained models
             lstm_model = load_model(f"models/{stock_ticker}_lstm.h5")
             feature_extractor = load_model(f"models/{stock_ticker}_feature_extractor.h5")
